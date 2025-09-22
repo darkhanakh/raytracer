@@ -1,9 +1,41 @@
 #include <stdio.h>
 #include <SDL.h>
+#include <math.h>
 
 #define WINDOW_WIDTH 900
 #define WINDOW_HEIGHT 600
 #define COLOR_WHITE 0xffffffff
+
+struct Circle
+{
+    double x;
+    double y;
+    double r;
+};
+
+void FillCircle(SDL_Surface *surface, struct Circle const circle, Uint32 color)
+{
+    const int minX = (int)(circle.x - circle.r);
+    const int maxX = (int)(circle.x + circle.r);
+    const int minY = (int)(circle.y - circle.r);
+    const int maxY = (int)(circle.y + circle.r);
+
+    const double radius_squared = pow(circle.r, 2);
+
+    for (int x = minX; x <= maxX; x++)
+    {
+        for (int y = minY; y <= maxY; y++)
+        {
+            const double distance_squared = pow(x- circle.x, 2) + pow(y - circle.y, 2);
+
+            if (distance_squared < radius_squared)
+            {
+                SDL_Rect pixel = { x, y, 1, 1 };
+                SDL_FillRect(surface, &pixel, color);
+            }
+        }
+    }
+}
 
 int main(void) {
     // Initialize SDL video subsystem
