@@ -2,10 +2,9 @@
 #include <SDL.h>
 #include <math.h>
 
-#define WINDOW_WIDTH 900
-#define WINDOW_HEIGHT 600
-#define COLOR_WHITE 0xffffffff
-#define COLOR_BLACK 0x00000000
+#define WINDOW_WIDTH 1000
+#define WINDOW_HEIGHT 700
+#define RAYS_NUMBER 150
 
 struct Circle
 {
@@ -14,110 +13,191 @@ struct Circle
     double r;
 };
 
-static void PutPixelAlpha(const SDL_Surface *surface, const int x, const int y, Uint32 color, Uint8 alpha)
+struct Ray
 {
-    if (x < 0 || x >= surface->w || y < 0 || y >= surface->h) return;
+    double x_start, y_start;
+    double angle;
+    double x_end, y_end;
+};
 
-    Uint8 r, g, b, a;
-    SDL_GetRGBA(color, surface->format, &r, &g, &b, &a);
+int RayCircleHit(double ox, double oy, double dx, double dy, struct Circle circle, double* t_hit)
+{
+    double cx = circle.x, cy = circle.y, r = circle.r;
+    double ocx = ox - cx;
+    double ocy = oy - cy;
 
-    const auto pixels = (Uint32 *)surface->pixels;
-    Uint32 *dst = pixels + y * surface->w + x;
+    double a = dx * dx + dy * dy; // normally 1
+    double b = 2 * (dx * ocx + dy * ocy);
+    double cc = ocx * ocx + ocy * ocy - r * r;
 
-    Uint8 dr, dg, db, da;
-    SDL_GetRGBA(*dst, surface->format, &dr, &dg, &db, &da);
+    double disc = b * b - 4 * a * cc;
+    if (disc < 0) return 0; // no hit
 
-    const float af = alpha / 255.0f;
-    const Uint8 nr = (Uint8)(r * af + dr * (1 - af));
-    const Uint8 ng = (Uint8)(g * af + dg * (1 - af));
-    const Uint8 nb = (Uint8)(b * af + db * (1 - af));
+    double t1 = (-b - sqrt(disc)) / (2 * a);
+    double t2 = (-b + sqrt(disc)) / (2 * a);
 
-    *dst = SDL_MapRGBA(surface->format, nr, ng, nb, 255);
+    if (t1 > 0)
+    {
+        *t_hit = t1;
+        return 1;
+    }
+    if (t2 > 0)
+    {
+        *t_hit = t2;
+        return 1;
+    }
+    return 0;
 }
 
-void FillCircle(SDL_Surface *surface, struct Circle const circle, Uint32 color)
+static void generate_rays(const struct Circle circle, struct Ray* rays)
 {
-    const int minX = (int)(circle.x - circle.r);
-    const int maxX = (int)(circle.x + circle.r);
-    const int minY = (int)(circle.y - circle.r);
-    const int maxY = (int)(circle.y + circle.r);
+    double max_len = sqrt(WINDOW_WIDTH * WINDOW_WIDTH +
+        WINDOW_HEIGHT * WINDOW_HEIGHT);
+
+    for (int i = 0; i < RAYS_NUMBER; i++)
+    {
+        double angle = i * (2.0 * M_PI / RAYS_NUMBER);
+        double dx = cos(angle);
+        double dy = sin(angle);
+        double x1 = circle.x + dx * max_len;
+        double y1 = circle.y + dy * max_len;
+        rays[i] = (struct Ray){circle.x, circle.y, angle, x1, y1};
+    }
+}
+
+static void update_rays_with_shadows(struct Ray* rays, const struct Circle circle, int ray_count)
+{
+    for (int i = 0; i < ray_count; i++)
+    {
+        double dx = cos(rays[i].angle);
+        double dy = sin(rays[i].angle);
+        double t_hit;
+
+        if (RayCircleHit(rays[i].x_start, rays[i].y_start, dx, dy, circle, &t_hit))
+        {
+            rays[i].x_end = rays[i].x_start + dx * t_hit;
+            rays[i].y_end = rays[i].y_start + dy * t_hit;
+        }
+    }
+}
+
+void DrawCircle(SDL_Renderer* renderer, struct Circle circle)
+{
+    int minX = (int)(circle.x - circle.r);
+    int maxX = (int)(circle.x + circle.r);
+    int minY = (int)(circle.y - circle.r);
+    int maxY = (int)(circle.y + circle.r);
 
     for (int x = minX; x <= maxX; x++)
     {
         for (int y = minY; y <= maxY; y++)
         {
-            const double dx = x - circle.x;
-            const double dy = y - circle.y;
-            const double distance = sqrt(dx * dx + dy * dy);
-
-            if (distance < circle.r - 0.5)
+            double dx = x - circle.x;
+            double dy = y - circle.y;
+            double distance = sqrt(dx * dx + dy * dy);
+            if (distance <= circle.r)
             {
-                PutPixelAlpha(surface, x, y, color, 255);
-            } else if (distance < circle.r + 0.5)
-            {
-                Uint8 alpha = (Uint8)((circle.r + 0.5 - distance) * 255);
-                PutPixelAlpha(surface, x, y, color, alpha);
+                SDL_RenderDrawPoint(renderer, x, y);
             }
         }
     }
 }
 
-int main(void) {
-    // Initialize SDL video subsystem
-    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+void DrawRays(SDL_Renderer* renderer, struct Ray* rays)
+{
+    for (int i = 0; i < RAYS_NUMBER; i++)
+    {
+        SDL_RenderDrawLine(renderer,
+                           (int)rays[i].x_start, (int)rays[i].y_start,
+                           (int)rays[i].x_end, (int)rays[i].y_end);
+    }
+}
+
+int main(void)
+{
+    if (SDL_Init(SDL_INIT_VIDEO) != 0)
+    {
         printf("SDL_Init Error: %s\n", SDL_GetError());
         return 1;
     }
 
-    // Create a window
-    SDL_Window *window = SDL_CreateWindow(
-        "Raytracing",
+    SDL_Window* window = SDL_CreateWindow(
+        "Raytracing (Renderer mode)",
         SDL_WINDOWPOS_CENTERED,
         SDL_WINDOWPOS_CENTERED,
         WINDOW_WIDTH,
         WINDOW_HEIGHT,
-        SDL_WINDOW_SHOWN // important: show the window
+        SDL_WINDOW_SHOWN
     );
 
-    if (!window) {
+    if (!window)
+    {
         printf("SDL_CreateWindow Error: %s\n", SDL_GetError());
         SDL_Quit();
         return 1;
     }
 
-    SDL_Surface *surface = SDL_GetWindowSurface(window);
+    // ⚡ Hardware-accelerated renderer
+    SDL_Renderer* renderer = SDL_CreateRenderer(
+        window, -1,
+        SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC
+    );
+
+    if (!renderer)
+    {
+        printf("SDL_CreateRenderer Error: %s\n", SDL_GetError());
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return 1;
+    }
+
+    struct Ray rays[RAYS_NUMBER];
     struct Circle circle = {200, 200, 80};
     struct Circle shadow_circle = {650, 300, 120};
-    SDL_Rect erase_surface = (SDL_Rect){0, 0, WINDOW_WIDTH, WINDOW_HEIGHT};
 
+    generate_rays(circle, rays);
+    update_rays_with_shadows(rays, shadow_circle, RAYS_NUMBER);
 
-    // Main loop (runs until user closes the window)
     int running = 1;
     SDL_Event event;
-    while (running) {
-        while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_QUIT) {
+    while (running)
+    {
+        while (SDL_PollEvent(&event))
+        {
+            if (event.type == SDL_QUIT)
+            {
                 running = 0;
             }
-
             if (event.type == SDL_MOUSEMOTION && event.motion.state != 0)
             {
                 circle.x = event.motion.x;
                 circle.y = event.motion.y;
+                generate_rays(circle, rays);
+                update_rays_with_shadows(rays, shadow_circle, RAYS_NUMBER);
             }
         }
-        SDL_FillRect(surface, &erase_surface, COLOR_BLACK);
-        FillCircle(surface, circle, COLOR_WHITE);
-        FillCircle(surface, shadow_circle, COLOR_WHITE);
 
-        SDL_UpdateWindowSurface(window);
+        // clear screen black
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+        SDL_RenderClear(renderer);
 
-        SDL_Delay(8); // ~120 FPS idle
+        // draw rays (grayish)
+        SDL_SetRenderDrawColor(renderer, 128, 128, 128, 255);
+        DrawRays(renderer, rays);
+
+        // draw light circle (white)
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+        DrawCircle(renderer, circle);
+
+        // draw shadow circle (white)
+        DrawCircle(renderer, shadow_circle);
+
+        // present frame
+        SDL_RenderPresent(renderer);
     }
 
-    // Cleanup
+    SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
-
     return 0;
 }

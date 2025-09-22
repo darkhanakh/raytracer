@@ -1,0 +1,8 @@
+[
+{
+  "directory": "/Users/darkhanakhmetov/Documents/raytracer/build",
+  "command": "/usr/bin/clang -isystem /opt/homebrew/Cellar/sdl2/2.32.10/include/SDL2 -g -std=gnu2x -arch arm64 -o CMakeFiles/raytracer.dir/main.c.o -c /Users/darkhanakhmetov/Documents/raytracer/main.c",
+  "file": "/Users/darkhanakhmetov/Documents/raytracer/main.c",
+  "output": "/Users/darkhanakhmetov/Documents/raytracer/build/CMakeFiles/raytracer.dir/main.c.o"
+}
+]
